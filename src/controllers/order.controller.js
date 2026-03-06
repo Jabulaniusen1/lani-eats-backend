@@ -7,7 +7,28 @@ const sendResponse = (res, statusCode, success, message, data = null) => {
     return res.status(statusCode).json(response);
 };
 
-const DELIVERY_FEE = 500; // flat fee for now, make dynamic later
+const SERVICE_CHARGE = 200;
+
+// Haversine formula — returns distance in km between two lat/lon points
+const getDistanceKm = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * (Math.PI / 180)) *
+        Math.cos(lat2 * (Math.PI / 180)) *
+        Math.sin(dLon / 2) ** 2;
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+};
+
+// Tiered delivery fee based on distance
+const getDeliveryFee = (distanceKm) => {
+    if (distanceKm <= 5)  return 1500;
+    if (distanceKm <= 10) return 2000;
+    if (distanceKm <= 15) return 2500;
+    return 3000;
+};
 
 
 // ─── PLACE ORDER ─────────────────────────────────────────────
@@ -41,7 +62,20 @@ const placeOrder = async (req, res) => {
             return sendResponse(res, 404, false, 'Address not found');
         }
 
-        // 3. Fetch all menu items being ordered
+        // 3. Calculate delivery fee from distance
+        let deliveryFee = 1500; // fallback if coordinates are missing
+        if (
+            restaurant.latitude && restaurant.longitude &&
+            address.latitude && address.longitude
+        ) {
+            const distanceKm = getDistanceKm(
+                restaurant.latitude, restaurant.longitude,
+                address.latitude, address.longitude
+            );
+            deliveryFee = getDeliveryFee(distanceKm);
+        }
+
+        // 4. Fetch all menu items being ordered
         const menuItemIds = items.map((i) => i.menuItemId);
 
         const menuItems = await prisma.menuItem.findMany({
@@ -56,7 +90,7 @@ const placeOrder = async (req, res) => {
             return sendResponse(res, 400, false, 'One or more items are unavailable or invalid');
         }
 
-        // 4. Calculate totals
+        // 5. Calculate totals
         let subtotal = 0;
 
         const orderItemsData = items.map((item) => {
@@ -72,9 +106,9 @@ const placeOrder = async (req, res) => {
             };
         });
 
-        const total = subtotal + DELIVERY_FEE;
+        const total = subtotal + deliveryFee + SERVICE_CHARGE;
 
-        // 5. Create order + order items + delivery record in one transaction
+        // 6. Create order + order items + delivery record in one transaction
         const order = await prisma.$transaction(async (tx) => {
             const newOrder = await tx.order.create({
                 data: {
@@ -82,7 +116,8 @@ const placeOrder = async (req, res) => {
                     restaurantId,
                     addressId,
                     subtotal,
-                    deliveryFee: DELIVERY_FEE,
+                    deliveryFee,
+                    serviceCharge: SERVICE_CHARGE,
                     total,
                     note: note || null,
                     items: {

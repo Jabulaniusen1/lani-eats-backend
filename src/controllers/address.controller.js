@@ -1,4 +1,20 @@
+const axios = require('axios');
 const prisma = require('../config/prisma');
+
+const geocodeAddress = async (street, city, state) => {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    const address = `${street}, ${city}, ${state}, Nigeria`;
+
+    const response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+        params: { address, key: apiKey },
+    });
+
+    const result = response.data.results[0];
+    if (!result) return { latitude: null, longitude: null };
+
+    const { lat, lng } = result.geometry.location;
+    return { latitude: lat, longitude: lng };
+};
 
 const sendResponse = (res, statusCode, success, message, data = null) => {
     const response = { success, message };
@@ -24,6 +40,20 @@ const addAddress = async (req, res) => {
             });
         }
 
+        // Auto-geocode if coordinates not provided by client
+        let lat = latitude || null;
+        let lng = longitude || null;
+
+        if (!lat || !lng) {
+            try {
+                const coords = await geocodeAddress(street, city, state);
+                lat = coords.latitude;
+                lng = coords.longitude;
+            } catch (geocodeError) {
+                console.error('Geocoding failed, saving without coordinates:', geocodeError.message);
+            }
+        }
+
         const address = await prisma.address.create({
             data: {
                 userId: req.user.userId,
@@ -31,8 +61,8 @@ const addAddress = async (req, res) => {
                 street,
                 city,
                 state,
-                latitude: latitude || null,
-                longitude: longitude || null,
+                latitude: lat,
+                longitude: lng,
                 isDefault: isDefault || false,
             },
         });

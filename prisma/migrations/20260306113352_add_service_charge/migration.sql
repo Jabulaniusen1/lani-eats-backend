@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Order" ADD COLUMN     "serviceCharge" DOUBLE PRECISION NOT NULL DEFAULT 200;

@@ -1,6 +1,7 @@
 const axios = require('axios');
 const prisma = require('../config/prisma');
 const crypto = require('crypto');
+const { getIO } = require('../config/socket');
 
 const sendResponse = (res, statusCode, success, message, data = null) => {
     const response = { success, message };
@@ -99,10 +100,26 @@ const verifyPayment = async (req, res) => {
         const { status, metadata } = response.data.data;
 
         if (status === 'success') {
-            // Update order payment status
-            await prisma.order.update({
+            const confirmedOrder = await prisma.order.update({
                 where: { id: metadata.orderId },
-                data: { paymentStatus: 'PAID' },
+                data: {
+                    paymentStatus: 'PAID',
+                    status: 'CONFIRMED',
+                },
+                include: {
+                    restaurant: { select: { id: true } },
+                },
+            });
+
+            const io = getIO();
+            io.to(`restaurant_${confirmedOrder.restaurant.id}`).emit('order_confirmed', {
+                orderId: metadata.orderId,
+                message: 'Payment received. Order confirmed.',
+            });
+            io.to(`order_${metadata.orderId}`).emit('order_status_updated', {
+                orderId: metadata.orderId,
+                status: 'CONFIRMED',
+                updatedAt: confirmedOrder.updatedAt,
             });
 
             return sendResponse(res, 200, true, 'Payment verified', {
@@ -131,14 +148,14 @@ const paystackWebhook = async (req, res) => {
         // Paystack signs every webhook with your secret key
         const hash = crypto
             .createHmac('sha512', PAYSTACK_SECRET)
-            .update(JSON.stringify(req.body))
+            .update(req.body) // req.body is a raw Buffer from express.raw()
             .digest('hex');
 
         if (hash !== req.headers['x-paystack-signature']) {
             return res.status(401).send('Invalid signature');
         }
 
-        const event = req.body;
+        const event = JSON.parse(req.body);
 
         // 2. Handle the charge.success event
         if (event.event === 'charge.success') {
@@ -158,12 +175,30 @@ const paystackWebhook = async (req, res) => {
                 return res.status(200).send('Already processed');
             }
 
-            await prisma.order.update({
+            const confirmedOrder = await prisma.order.update({
                 where: { id: orderId },
                 data: {
                     paymentStatus: 'PAID',
                     paymentRef: reference,
+                    status: 'CONFIRMED',
                 },
+                include: {
+                    restaurant: { select: { id: true, name: true } },
+                },
+            });
+
+            // Notify merchant to start preparing
+            const io = getIO();
+            io.to(`restaurant_${confirmedOrder.restaurant.id}`).emit('order_confirmed', {
+                orderId,
+                message: 'Payment received. Order confirmed.',
+            });
+
+            // Notify customer their order is confirmed
+            io.to(`order_${orderId}`).emit('order_status_updated', {
+                orderId,
+                status: 'CONFIRMED',
+                updatedAt: confirmedOrder.updatedAt,
             });
 
             console.log(`✅ Payment confirmed for order ${orderId}`);
