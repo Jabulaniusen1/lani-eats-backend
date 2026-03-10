@@ -69,8 +69,8 @@ const createMenuItem = async (req, res) => {
         const { restaurantId } = req.params;
         const { name, description, price, categoryId, imageUrl } = req.body;
 
-        if (!name || !price) {
-            return sendResponse(res, 400, false, 'Name and price are required');
+        if (!name || !price || !categoryId) {
+            return sendResponse(res, 400, false, 'Name, price and category are required');
         }
 
         const restaurant = await verifyRestaurantOwner(restaurantId, req.user.userId);

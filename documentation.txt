@@ -293,7 +293,7 @@ Browse all approved restaurants. Supports filtering.
 ---
 
 #### GET `/restaurants/:id`
-Get a single restaurant with its full menu organized by category.
+Get a single restaurant with its full menu.
 
 **Public** | No token required
 
@@ -361,6 +361,17 @@ Update a restaurant.
 
 **Protected** | `MERCHANT` only
 
+**Request Body** (all fields optional):
+```json
+{
+  "name": "Updated Name",
+  "description": "Updated description",
+  "isOpen": true,
+  "openingTime": "09:00",
+  "closingTime": "23:00"
+}
+```
+
 ---
 
 #### POST `/restaurants/:id/logo`
@@ -407,17 +418,6 @@ Upload or replace the restaurant's cover banner.
 }
 ```
 
-**Request Body** (all fields optional):
-```json
-{
-  "name": "Updated Name",
-  "description": "Updated description",
-  "isOpen": true,
-  "openingTime": "09:00",
-  "closingTime": "23:00"
-}
-```
-
 ---
 
 ### 🍖 MENU
@@ -460,6 +460,8 @@ Create a menu item.
   "imageUrl": "https://..."
 }
 ```
+
+> `name`, `price`, and `categoryId` are **required**. The merchant must create a category first before adding items.
 
 ---
 
