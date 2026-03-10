@@ -1,4 +1,17 @@
 const prisma = require('../config/prisma');
+const cloudinary = require('../config/cloudinary');
+
+const uploadToCloudinary = (buffer, folder) =>
+    new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+            { folder, resource_type: 'image' },
+            (error, result) => {
+                if (error) reject(error);
+                else resolve(result.secure_url);
+            }
+        );
+        stream.end(buffer);
+    });
 
 const sendResponse = (res, statusCode, success, message, data = null) => {
     const response = { success, message };
@@ -194,10 +207,70 @@ const updateRestaurant = async (req, res) => {
 };
 
 
+// ─── UPLOAD RESTAURANT LOGO ──────────────────────────────────
+const uploadRestaurantLogo = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!req.file) {
+            return sendResponse(res, 400, false, 'Image file is required');
+        }
+
+        const merchant = await prisma.merchant.findUnique({ where: { userId: req.user.userId } });
+        const restaurant = await prisma.restaurant.findFirst({ where: { id, merchantId: merchant?.id } });
+
+        if (!restaurant) {
+            return sendResponse(res, 404, false, 'Restaurant not found or access denied');
+        }
+
+        const logoUrl = await uploadToCloudinary(req.file.buffer, 'lanieats/logos');
+
+        const updated = await prisma.restaurant.update({ where: { id }, data: { logoUrl } });
+
+        return sendResponse(res, 200, true, 'Logo uploaded', { restaurant: updated });
+
+    } catch (error) {
+        console.error('uploadRestaurantLogo error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
+// ─── UPLOAD RESTAURANT COVER ─────────────────────────────────
+const uploadRestaurantCover = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!req.file) {
+            return sendResponse(res, 400, false, 'Image file is required');
+        }
+
+        const merchant = await prisma.merchant.findUnique({ where: { userId: req.user.userId } });
+        const restaurant = await prisma.restaurant.findFirst({ where: { id, merchantId: merchant?.id } });
+
+        if (!restaurant) {
+            return sendResponse(res, 404, false, 'Restaurant not found or access denied');
+        }
+
+        const coverUrl = await uploadToCloudinary(req.file.buffer, 'lanieats/covers');
+
+        const updated = await prisma.restaurant.update({ where: { id }, data: { coverUrl } });
+
+        return sendResponse(res, 200, true, 'Cover uploaded', { restaurant: updated });
+
+    } catch (error) {
+        console.error('uploadRestaurantCover error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
 module.exports = {
     createRestaurant,
     getMyRestaurants,
     getAllRestaurants,
     getRestaurantById,
     updateRestaurant,
+    uploadRestaurantLogo,
+    uploadRestaurantCover,
 };

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx prisma migrate dev --name add_service_charge)"
+      "Bash(npx prisma migrate dev --name add_service_charge)",
+      "Bash(npm install:*)"
     ]
   }
 }

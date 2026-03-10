@@ -1,0 +1,1225 @@
+# Lanieats Rider App — Windsurf Build Prompt
+
+---
+
+## PROJECT OVERVIEW
+
+Build the **Lanieats Rider App** — a React Native mobile application for delivery riders on the Lanieats food delivery platform in Nigeria. Riders use this app to go online, see available deliveries, accept them, navigate to restaurants and customers, and mark deliveries complete.
+
+This is a **production-ready** app. Build everything fully functional, fully connected to the API, with a polished UI optimized for one-handed use while on a motorbike.
+
+---
+
+## TECH STACK
+
+```
+Framework:        React Native (Expo SDK 51+)
+Navigation:       React Navigation v6 (Stack + Bottom Tabs)
+State Management: Zustand
+API Client:       Axios
+Storage:          AsyncStorage
+Real-time:        Socket.io-client
+Location:         expo-location
+Maps:             react-native-maps
+Forms:            React Hook Form
+Icons:            @expo/vector-icons (Ionicons)
+Haptics:          expo-haptics
+Notifications:    expo-notifications
+```
+
+Install all required packages before starting.
+
+---
+
+## DESIGN SYSTEM
+
+### Brand Identity
+- **App Name:** Lanieats Rider
+- **Personality:** Fast, action-oriented, practical. Built for riders who are always moving.
+- **Aesthetic:** Bold and high-contrast. Dark theme with electric orange accents. Think Bolt/Gokada energy — purpose-built for the road.
+
+### Color Palette
+```
+Primary Orange:     #FF6B00   (CTA buttons, active states, earnings)
+Dark Background:    #0A0A0A   (main app background — near black)
+Card Background:    #1A1A1A   (cards, bottom sheets)
+Surface:            #242424   (input backgrounds, dividers)
+Accent Orange:      #FF8C38   (gradients, hover states)
+Success Green:      #22C55E   (delivered, online, earnings)
+Warning Amber:      #F59E0B   (assigned, in progress)
+Error Red:          #EF4444   (offline, failed, cancelled)
+Muted Gray:         #6B7280   (secondary text, inactive icons)
+Light Text:         #F9FAFB   (primary text on dark)
+Dim Text:           #9CA3AF   (secondary text on dark)
+```
+
+### Typography
+```
+Display / Headers:   Space Grotesk Bold
+Body / UI:           Inter
+Numbers / Earnings:  Space Grotesk Bold (large, prominent)
+```
+
+Load via expo-google-fonts:
+```bash
+npx expo install @expo-google-fonts/space-grotesk @expo-google-fonts/inter expo-font
+```
+
+### Spacing System
+```
+xs:   4px
+sm:   8px
+md:   16px
+lg:   24px
+xl:   32px
+2xl:  48px
+```
+
+### Border Radius
+```
+sm:   8px
+md:   12px
+lg:   16px
+xl:   24px
+full: 9999px
+```
+
+### Shadows (dark theme — subtle glow)
+```js
+const shadow = {
+  sm: {
+    shadowColor: '#FF6B00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  md: {
+    shadowColor: '#FF6B00',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+};
+```
+
+---
+
+## PROJECT STRUCTURE
+
+```
+lanieats-rider/
+├── src/
+│   ├── api/
+│   │   ├── client.js
+│   │   ├── auth.api.js
+│   │   ├── rider.api.js
+│   │   └── delivery.api.js
+│   ├── services/
+│   │   ├── socket.js
+│   │   └── location.js
+│   ├── store/
+│   │   ├── auth.store.js
+│   │   ├── delivery.store.js
+│   │   └── rider.store.js
+│   ├── navigation/
+│   │   ├── AppNavigator.js
+│   │   ├── AuthNavigator.js
+│   │   └── MainNavigator.js
+│   ├── screens/
+│   │   ├── auth/
+│   │   │   ├── SplashScreen.js
+│   │   │   ├── LoginScreen.js
+│   │   │   └── RegisterScreen.js
+│   │   ├── home/
+│   │   │   └── HomeScreen.js
+│   │   ├── delivery/
+│   │   │   ├── DeliveryDetailScreen.js
+│   │   │   └── ActiveDeliveryScreen.js
+│   │   ├── history/
+│   │   │   └── HistoryScreen.js
+│   │   └── profile/
+│   │       └── ProfileScreen.js
+│   ├── components/
+│   │   ├── common/
+│   │   │   ├── Button.js
+│   │   │   ├── Badge.js
+│   │   │   ├── Toast.js
+│   │   │   ├── BottomSheet.js
+│   │   │   ├── EmptyState.js
+│   │   │   └── SkeletonLoader.js
+│   │   ├── delivery/
+│   │   │   ├── DeliveryCard.js
+│   │   │   └── DeliveryStatusBar.js
+│   │   └── home/
+│   │       ├── AvailabilityToggle.js
+│   │       └── EarningsSummary.js
+│   ├── hooks/
+│   │   ├── useAuth.js
+│   │   ├── useLocation.js
+│   │   └── useSocket.js
+│   ├── utils/
+│   │   ├── storage.js
+│   │   ├── formatters.js
+│   │   └── constants.js
+│   └── theme/
+│       ├── colors.js
+│       ├── typography.js
+│       └── spacing.js
+```
+
+---
+
+## API SETUP
+
+### Base URL
+```
+http://localhost:8000/api/v1
+```
+
+### `src/api/client.js`
+```js
+import axios from 'axios';
+import { getToken, clearAuth } from '../utils/storage';
+
+const BASE_URL = 'http://localhost:8000/api/v1';
+
+const client = axios.create({
+  baseURL: BASE_URL,
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+client.interceptors.request.use(async (config) => {
+  const token = await getToken();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+client.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    if (error.response?.status === 401) {
+      await clearAuth();
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default client;
+```
+
+### `src/utils/storage.js`
+```js
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export const saveAuth = async (token, user) => {
+  await AsyncStorage.multiSet([
+    ['token', token],
+    ['user', JSON.stringify(user)],
+  ]);
+};
+
+export const getToken = () => AsyncStorage.getItem('token');
+
+export const getUser = async () => {
+  const user = await AsyncStorage.getItem('user');
+  return user ? JSON.parse(user) : null;
+};
+
+export const clearAuth = async () => {
+  await AsyncStorage.multiRemove(['token', 'user']);
+};
+```
+
+---
+
+## SOCKET.IO SETUP
+
+### `src/services/socket.js`
+```js
+import { io } from 'socket.io-client';
+
+const SOCKET_URL = 'http://localhost:8000';
+let socket = null;
+
+export const connectSocket = () => {
+  if (!socket) {
+    socket = io(SOCKET_URL, {
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+    });
+
+    socket.on('connect', () => console.log('🔌 Rider socket connected'));
+    socket.on('disconnect', () => console.log('❌ Rider socket disconnected'));
+  }
+  return socket;
+};
+
+export const getSocket = () => socket;
+
+export const joinRiderRoom = (riderId) => {
+  const s = getSocket();
+  if (s) s.emit('join_rider_room', riderId);
+};
+
+export const disconnectSocket = () => {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+};
+```
+
+---
+
+## LOCATION SERVICE
+
+### `src/services/location.js`
+```js
+import * as Location from 'expo-location';
+import client from '../api/client';
+
+let locationSubscription = null;
+
+export const requestLocationPermission = async () => {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  return status === 'granted';
+};
+
+export const getCurrentLocation = async () => {
+  const location = await Location.getCurrentPositionAsync({
+    accuracy: Location.Accuracy.High,
+  });
+  return {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+  };
+};
+
+// Call this when rider starts an active delivery
+// Sends location to backend every 10 seconds
+export const startLocationTracking = async () => {
+  stopLocationTracking();
+
+  locationSubscription = await Location.watchPositionAsync(
+    {
+      accuracy: Location.Accuracy.High,
+      timeInterval: 10000,     // every 10 seconds
+      distanceInterval: 50,    // or every 50 meters
+    },
+    async (location) => {
+      try {
+        await client.patch('/rider/location', {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+      } catch (e) {
+        console.log('Location update failed', e.message);
+      }
+    }
+  );
+};
+
+export const stopLocationTracking = () => {
+  if (locationSubscription) {
+    locationSubscription.remove();
+    locationSubscription = null;
+  }
+};
+```
+
+---
+
+## ZUSTAND STORES
+
+### `src/store/auth.store.js`
+```js
+import { create } from 'zustand';
+import { saveAuth, clearAuth, getToken, getUser } from '../utils/storage';
+import { loginApi, registerApi, getMeApi } from '../api/auth.api';
+import { connectSocket, joinRiderRoom, disconnectSocket } from '../services/socket';
+
+const useAuthStore = create((set) => ({
+  user: null,
+  rider: null,
+  isAuthenticated: false,
+  isLoading: true,
+
+  initialize: async () => {
+    try {
+      const token = await getToken();
+      if (token) {
+        const res = await getMeApi();
+        const { user } = res.data.data;
+        await saveAuth(token, user);
+        set({ user, rider: user.rider, isAuthenticated: true });
+        connectSocket();
+        if (user.rider) joinRiderRoom(user.rider.id);
+      }
+    } catch {
+      await clearAuth();
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  login: async (email, password) => {
+    const res = await loginApi(email, password);
+    const { token, user } = res.data.data;
+    await saveAuth(token, user);
+    // Fetch full profile to get rider object
+    const meRes = await getMeApi();
+    const fullUser = meRes.data.data.user;
+    set({ user: fullUser, rider: fullUser.rider, isAuthenticated: true });
+    connectSocket();
+    if (fullUser.rider) joinRiderRoom(fullUser.rider.id);
+  },
+
+  register: async (data) => {
+    const res = await registerApi({ ...data, role: 'RIDER' });
+    const { token, user } = res.data.data;
+    await saveAuth(token, user);
+    const meRes = await getMeApi();
+    const fullUser = meRes.data.data.user;
+    set({ user: fullUser, rider: fullUser.rider, isAuthenticated: true });
+    connectSocket();
+    if (fullUser.rider) joinRiderRoom(fullUser.rider.id);
+  },
+
+  logout: async () => {
+    await clearAuth();
+    disconnectSocket();
+    set({ user: null, rider: null, isAuthenticated: false });
+  },
+
+  refreshRider: async () => {
+    const res = await getMeApi();
+    const fullUser = res.data.data.user;
+    set({ user: fullUser, rider: fullUser.rider });
+  },
+}));
+
+export default useAuthStore;
+```
+
+### `src/store/delivery.store.js`
+```js
+import { create } from 'zustand';
+import {
+  getAvailableDeliveriesApi,
+  acceptDeliveryApi,
+  updateDeliveryStatusApi,
+  getMyDeliveriesApi,
+} from '../api/delivery.api';
+
+const useDeliveryStore = create((set, get) => ({
+  availableDeliveries: [],
+  activeDelivery: null,
+  deliveryHistory: [],
+  isLoading: false,
+
+  fetchAvailable: async () => {
+    set({ isLoading: true });
+    try {
+      const res = await getAvailableDeliveriesApi();
+      set({ availableDeliveries: res.data.data.deliveries });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  fetchHistory: async () => {
+    set({ isLoading: true });
+    try {
+      const res = await getMyDeliveriesApi();
+      set({ deliveryHistory: res.data.data.deliveries });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  acceptDelivery: async (deliveryId) => {
+    const res = await acceptDeliveryApi(deliveryId);
+    const delivery = res.data.data.delivery;
+    set({ activeDelivery: delivery });
+    return delivery;
+  },
+
+  updateStatus: async (deliveryId, status, coords) => {
+    const res = await updateDeliveryStatusApi(deliveryId, status, coords);
+    const delivery = res.data.data.delivery;
+    if (status === 'DELIVERED' || status === 'FAILED') {
+      set({ activeDelivery: null });
+    } else {
+      set({ activeDelivery: delivery });
+    }
+    return delivery;
+  },
+
+  setActiveDelivery: (delivery) => set({ activeDelivery: delivery }),
+
+  addAvailableDelivery: (delivery) => {
+    set((state) => ({
+      availableDeliveries: [delivery, ...state.availableDeliveries],
+    }));
+  },
+
+  removeAvailableDelivery: (orderId) => {
+    set((state) => ({
+      availableDeliveries: state.availableDeliveries.filter(
+        (d) => d.order.id !== orderId
+      ),
+    }));
+  },
+}));
+
+export default useDeliveryStore;
+```
+
+---
+
+## SCREENS — FULL IMPLEMENTATION
+
+---
+
+### 1. SPLASH SCREEN
+`src/screens/auth/SplashScreen.js`
+
+- Full screen dark background (`#0A0A0A`)
+- Center: animated orange circle that pulses (scale 1.0 → 1.1 → 1.0, loop)
+- Inside circle: white motorbike icon (Ionicons: `bicycle` or `car-sport`)
+- Below: "lanieats" in Space Grotesk Bold, white, 32px
+- Below that: "rider" in small orange text, letter-spaced
+- After 2 seconds:
+  - Check token → call `GET /auth/me`
+  - Valid → check if rider has active delivery → navigate accordingly
+  - Invalid → navigate to LoginScreen
+- Show subtle "Connecting..." text at bottom while checking
+
+---
+
+### 2. LOGIN SCREEN
+`src/screens/auth/LoginScreen.js`
+
+**Layout — dark theme:**
+- Dark background, no header
+- Top: small orange motorbike logo + "Rider Portal" label
+- Large heading: "Let's ride 🏍️" in Space Grotesk Bold, 32px, white
+- Subtext: "Sign in to start earning" in Inter, dim gray
+
+**Form:**
+- Email input — dark surface background, white text, orange focus border
+- Password input — with show/hide toggle
+- "Sign In" button — full width, orange gradient background
+  (`#FF6B00` → `#FF8C38`), white text, 56px height
+  - Loading spinner inside while API call is in progress
+
+**API Call:**
+```js
+POST /auth/login
+{ email, password }
+```
+
+- On success: save token → navigate to Main
+- On error: red toast at top + shake animation on the form
+
+**Bottom:** "New rider? Register here" → RegisterScreen
+
+---
+
+### 3. REGISTER SCREEN
+`src/screens/auth/RegisterScreen.js`
+
+**Form — scrollable:**
+- First Name
+- Last Name
+- Email
+- Phone (Nigerian format)
+- Password (with strength bar)
+- Confirm Password
+
+**Vehicle section** (after password):
+- Vehicle Type — segmented selector with 3 options:
+  ```
+  [🛵 Bike]  [🚲 Bicycle]  [🚗 Car]
+  ```
+  Active option: orange background, white text
+  Inactive: dark surface, gray text
+
+- Vehicle Plate Number (optional — rider can add later)
+
+**API Call:**
+```js
+POST /auth/register
+{
+  firstName, lastName, email, phone, password,
+  role: 'RIDER'
+}
+```
+
+On success: navigate to Main. Show pending approval screen.
+
+---
+
+### 4. PENDING APPROVAL SCREEN
+
+Show this as an overlay or dedicated screen when `rider.isApproved === false`.
+
+**Full screen layout:**
+- Dark background
+- Large ⏳ or 🔍 icon in orange
+- Title: "Application Under Review" in Space Grotesk Bold, white
+- Body: "Our team is reviewing your account. You'll be notified once approved — usually within 24 hours." in Inter, dim gray
+- Info cards:
+  - ✅ Profile submitted
+  - ⏳ Under review
+  - 🔒 Approval pending
+- "Complete Your Profile" button → Profile screen (so they can add vehicle details while waiting)
+- "Sign Out" ghost button
+
+Check approval status on every app open — once `isApproved` becomes true, show the main app automatically.
+
+---
+
+### 5. MAIN NAVIGATOR (Bottom Tabs)
+`src/navigation/MainNavigator.js`
+
+Tab bar:
+- Background: `#1A1A1A`
+- Active: orange icon + label
+- Inactive: muted gray
+- Height: 65px
+
+**4 tabs:**
+
+| Tab | Icon | Screen |
+|-----|------|--------|
+| Home | `home` | HomeScreen |
+| Deliveries | `bicycle` | DeliveryDetailScreen (available) |
+| History | `time` | HistoryScreen |
+| Profile | `person` | ProfileScreen |
+
+Badge on Deliveries tab showing count of available deliveries.
+
+---
+
+### 6. HOME SCREEN
+`src/screens/home/HomeScreen.js`
+
+This is the rider's command center. Everything they need at a glance.
+
+**Top Section — Status Header:**
+```
+┌────────────────────────────────────────────┐
+│  Good morning, Emeka 👋                     │
+│  Tuesday, 25 Feb                            │
+│                                             │
+│        ┌─────────────────────┐              │
+│        │  ● ONLINE           │              │
+│        │  [────────────] ON  │   ← toggle  │
+│        └─────────────────────┘              │
+└────────────────────────────────────────────┘
+```
+
+The availability toggle:
+- Large, full-width pill toggle — this is the primary action on this screen
+- ONLINE: green background, "● ONLINE" in white bold
+- OFFLINE: dark surface, "● OFFLINE" in gray
+- Toggle calls:
+  ```js
+  PATCH /rider/availability
+  { isAvailable: true/false, latitude, longitude }
+  ```
+- Get current location before sending
+- Haptic feedback on toggle
+- When going ONLINE: animate a green pulse ring expanding from the toggle
+
+**Today's Earnings Card:**
+```
+┌────────────────────────────────────────────┐
+│  Today's Earnings                           │
+│                                             │
+│         ₦3,250                              │  ← Space Grotesk Bold, 40px, orange
+│                                             │
+│  5 deliveries · 4.9★ rating                │
+└────────────────────────────────────────────┘
+```
+
+Calculate today's earnings from delivery history (filter by today's date).
+Show delivery count and average rating.
+
+**Quick Stats Row:**
+```
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│  Total   │  │  This    │  │ Rating   │
+│  ₦42,800 │  │  Week    │  │  4.8 ⭐  │
+│          │  │  ₦12,500 │  │          │
+└──────────┘  └──────────┘  └──────────┘
+```
+
+**Active Delivery Card** (shown when rider has an active delivery):
+```
+┌────────────────────────────────────────────┐
+│  🏍️  ACTIVE DELIVERY                       │
+│  ─────────────────────────────────────────  │
+│  📍 Pickup: Mama Emeka Kitchen              │
+│     12 Broad Street, Lagos                  │
+│  ─────────────────────────────────────────  │
+│  🎯 Drop: 15 Admiralty Way, Lagos           │
+│  ─────────────────────────────────────────  │
+│  Status: ASSIGNED — Head to restaurant      │
+│                                             │
+│         [View Active Delivery →]            │
+└────────────────────────────────────────────┘
+```
+Tapping navigates to ActiveDeliveryScreen.
+
+**Available Deliveries Preview** (when online and no active delivery):
+Show the top 2 available deliveries as cards with an "Accept" button.
+"See all X deliveries →" link at bottom.
+
+**Socket Events — set up on mount:**
+```js
+socket.on('delivery_available', (data) => {
+  // 1. Vibrate device
+  // 2. Show notification banner at top
+  // 3. Refresh available deliveries list
+  // 4. If rider is online — play a ping sound
+});
+```
+
+---
+
+### 7. DELIVERY DETAIL SCREEN (Available Deliveries)
+`src/screens/delivery/DeliveryDetailScreen.js`
+
+Shown from the Deliveries tab — lists all available deliveries.
+
+**Header:**
+- "Available Deliveries" title
+- Refresh button (top right)
+- Subtitle: "X deliveries near you"
+
+**API Call on mount + pull to refresh:**
+```js
+GET /rider/deliveries/available
+```
+
+**Delivery Card Design** (`src/components/delivery/DeliveryCard.js`):
+
+```
+┌────────────────────────────────────────────┐
+│  🍽️  Mama Emeka Kitchen         [PREPARING] │
+│  ─────────────────────────────────────────  │
+│  📍 Pickup                                  │
+│     12 Broad Street, Lagos                  │
+│                                             │
+│  🎯 Dropoff                                 │
+│     15 Admiralty Way, Lekki                 │
+│  ─────────────────────────────────────────  │
+│  📦 2 items · Jollof Rice + Chicken...      │
+│  👤 Customer: Jabulani D.                   │
+│  ─────────────────────────────────────────  │
+│  💰 Delivery Earning: ₦800                  │
+│                                             │
+│           [ACCEPT DELIVERY]                 │
+└────────────────────────────────────────────┘
+```
+
+The "ACCEPT DELIVERY" button:
+- Full width, orange gradient
+- 56px height, bold text
+- On press → show confirmation bottom sheet:
+  ```
+  "Accept this delivery?"
+  Pickup: Mama Emeka Kitchen
+  Dropoff: 15 Admiralty Way
+  [Cancel]    [Yes, Accept →]
+  ```
+- On confirm → call `PATCH /rider/deliveries/:deliveryId/accept`
+- On success → navigate to ActiveDeliveryScreen
+- On error "delivery already taken" → remove card, show toast, refresh list
+
+Socket listener:
+```js
+socket.on('delivery_available', (data) => {
+  // Refresh the list or append new delivery
+});
+```
+
+Empty state when no deliveries available:
+- Dark card with illustration
+- "No deliveries available right now"
+- "We'll notify you when a new order is ready"
+- Show only when rider is ONLINE
+- If OFFLINE: "You're offline. Go online to see deliveries."
+
+---
+
+### 8. ACTIVE DELIVERY SCREEN
+`src/screens/delivery/ActiveDeliveryScreen.js`
+
+This is the most critical screen. A rider spends most active time here.
+
+**Full screen map** using `react-native-maps`:
+- Dark map style (use `mapType="mutedStandard"` on iOS or custom dark style on Android)
+- Markers:
+  - 🍽️ Restaurant marker (orange pin) — restaurant location
+  - 🎯 Customer marker (green pin) — delivery address
+  - 🏍️ Rider marker — current location (updates in real time)
+- Draw a route line between current position → restaurant (if ASSIGNED) or restaurant → customer (if PICKED_UP)
+
+**Bottom Sheet** (always visible, slides up over map):
+
+**When status is `ASSIGNED` (heading to restaurant):**
+```
+┌────────────────────────────────────────────┐
+│  ── (drag handle)                           │
+│                                             │
+│  📍 HEAD TO RESTAURANT                      │
+│  ─────────────────────────────────────────  │
+│  Mama Emeka Kitchen                         │
+│  12 Broad Street, Lagos                     │
+│  📞 Call Restaurant                         │
+│  ─────────────────────────────────────────  │
+│  ORDER DETAILS                              │
+│  2x Jollof Rice + Chicken      ₦5,000      │
+│  1x Peppered Fish              ₦2,000      │
+│  ─────────────────────────────────────────  │
+│  📦 Total items: 3                          │
+│  ─────────────────────────────────────────  │
+│                                             │
+│      [I'VE PICKED UP THE FOOD ✓]           │
+│                                             │
+└────────────────────────────────────────────┘
+```
+
+**When status is `PICKED_UP` (heading to customer):**
+```
+┌────────────────────────────────────────────┐
+│  ── (drag handle)                           │
+│                                             │
+│  🎯 DELIVER TO CUSTOMER                     │
+│  ─────────────────────────────────────────  │
+│  Jabulani Doe                               │
+│  15 Admiralty Way, Lekki                    │
+│  📞 Call Customer                           │
+│  ─────────────────────────────────────────  │
+│  🗒️ Note: "Extra pepper please"            │
+│  ─────────────────────────────────────────  │
+│  💰 Your earning: ₦800                      │
+│  ─────────────────────────────────────────  │
+│                                             │
+│         [ORDER DELIVERED ✓]                 │
+│                                             │
+│      [Report Issue]  (ghost button)         │
+└────────────────────────────────────────────┘
+```
+
+**Action Buttons:**
+
+"I'VE PICKED UP THE FOOD" button:
+- Gets current location
+- Calls `PATCH /rider/deliveries/:deliveryId/status`
+  ```json
+  { "status": "PICKED_UP", "latitude": ..., "longitude": ... }
+  ```
+- Strong haptic feedback
+- Update map to show route to customer
+- Change bottom sheet to dropoff view
+
+"ORDER DELIVERED" button:
+- Shows confirmation bottom sheet:
+  ```
+  "Confirm delivery?"
+  "Only confirm once the customer has received their order."
+  [Cancel]    [Confirm Delivery]
+  ```
+- Gets current location
+- Calls `PATCH /rider/deliveries/:deliveryId/status`
+  ```json
+  { "status": "DELIVERED", "latitude": ..., "longitude": ... }
+  ```
+- Success animation (green checkmark expanding)
+- Navigate back to Home with a celebration toast:
+  "Delivery complete! ₦800 earned 🎉"
+
+"Call Restaurant" / "Call Customer" — open the phone dialer:
+```js
+Linking.openURL(`tel:${phone}`);
+```
+
+**Location tracking — start on mount, stop on unmount:**
+```js
+useEffect(() => {
+  startLocationTracking();
+  return () => stopLocationTracking();
+}, []);
+```
+
+**Navigate button** — opens Google Maps or Apple Maps with directions:
+```js
+const openNavigation = (lat, lng, label) => {
+  const url = Platform.select({
+    ios: `maps://app?daddr=${lat},${lng}&dirflg=d`,
+    android: `google.navigation:q=${lat},${lng}`,
+  });
+  Linking.openURL(url);
+};
+```
+Show a "Navigate" pill button floating on the map (orange, top-right of map area).
+
+---
+
+### 9. DELIVERY COMPLETE ANIMATION
+
+After `DELIVERED` is confirmed — show a full-screen success animation before navigating home:
+
+- Dark background
+- Large green animated checkmark (draws in with stroke animation)
+- "Delivered!" in Space Grotesk Bold, white, 32px
+- "₦800 earned" in orange, 24px
+- "Order #4291 complete" in dim gray
+- Confetti particles raining from top (use `react-native-confetti-cannon` or a simple custom particle animation)
+- Auto-dismiss after 2.5 seconds → Home
+
+---
+
+### 10. HISTORY SCREEN
+`src/screens/history/HistoryScreen.js`
+
+**Header:**
+- "Deliveries" title
+- Filter tabs: All | Today | This Week | This Month
+
+**API Call:**
+```js
+GET /rider/deliveries/my
+```
+
+**Summary bar at top:**
+```
+┌────────────────────────────────────────────┐
+│  Total Earnings         Total Deliveries    │
+│  ₦42,800                48                 │
+└────────────────────────────────────────────┘
+```
+
+**Delivery History Card:**
+```
+┌────────────────────────────────────────────┐
+│  #4291                   Feb 25, 2:30 PM   │
+│  Mama Emeka → 15 Admiralty Way              │
+│  ✓ Delivered                    ₦800       │
+└────────────────────────────────────────────┘
+```
+
+Color of status indicator:
+- DELIVERED → green
+- FAILED → red
+
+Group deliveries by date with sticky date headers:
+```
+TODAY
+[delivery card]
+[delivery card]
+
+YESTERDAY
+[delivery card]
+```
+
+Empty state: "No deliveries yet. Go online and start earning!"
+
+---
+
+### 11. PROFILE SCREEN
+`src/screens/profile/ProfileScreen.js`
+
+**Top section:**
+- Large avatar circle (initials on dark, orange ring) with an edit icon overlay
+- Rider name in Space Grotesk Bold, white
+- Rating: ⭐ 4.8 · 48 deliveries
+- Approval status badge:
+  - Approved → green "✓ Verified Rider" badge
+  - Pending → amber "⏳ Pending Approval" badge
+
+**Performance Card:**
+```
+┌────────────────────────────────────────────┐
+│  Performance                                │
+│  ─────────────────────────────────────────  │
+│  ⭐ Rating     Total        This Week       │
+│  4.8          48 trips      ₦12,500        │
+└────────────────────────────────────────────┘
+```
+
+**Vehicle Information Card:**
+```
+┌────────────────────────────────────────────┐
+│  Vehicle Info                    [Edit]     │
+│  ─────────────────────────────────────────  │
+│  Type: Motorcycle                           │
+│  Plate: LND 123 XY                          │
+└────────────────────────────────────────────┘
+```
+
+Edit vehicle → bottom sheet with form:
+```js
+PATCH /rider/profile
+{ vehicleType, vehiclePlate }
+```
+
+**Menu items:**
+- 📋 Delivery History → HistoryScreen
+- ⭐ My Reviews → list of reviews received
+- 🔔 Notification Settings
+- 🔒 Change Password
+- 📞 Contact Support
+- 📄 Terms of Service
+- 🚪 Sign Out → confirmation → logout
+
+---
+
+## UTILITY FUNCTIONS
+
+### `src/utils/formatters.js`
+```js
+export const formatCurrency = (amount) =>
+  `₦${Number(amount).toLocaleString('en-NG')}`;
+
+export const formatOrderNumber = (id) =>
+  `#${id.slice(-4).toUpperCase()}`;
+
+export const formatRelativeTime = (date) => {
+  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return new Date(date).toLocaleDateString('en-NG', {
+    day: 'numeric', month: 'short',
+  });
+};
+
+export const formatDeliveryEarning = (deliveryFee) => {
+  // Rider earns 60% of the delivery fee
+  return Math.floor(deliveryFee * 0.6);
+};
+
+export const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+};
+```
+
+---
+
+## REUSABLE COMPONENTS
+
+### `src/components/common/Button.js`
+```
+Props: label, onPress, variant ('primary'|'outline'|'ghost'|'danger'),
+       loading, disabled, fullWidth, size ('sm'|'md'|'lg'), icon
+
+Primary: orange gradient background (#FF6B00 → #FF8C38), white text, bold
+Outline: transparent, orange border + orange text
+Ghost:   no border, dim gray text
+Danger:  red background, white text
+
+Loading: ActivityIndicator replaces text, button disabled
+Disabled: 40% opacity
+```
+
+### `src/components/common/Badge.js`
+```
+Props: label, variant ('success'|'warning'|'error'|'info'|'default')
+
+Pill shape, Space Grotesk Bold, 11px, all caps, uppercase
+Success: green background + white text
+Warning: amber background + dark text
+Error:   red background + white text
+Info:    blue background + white text
+Default: dark surface + gray text
+```
+
+### `src/components/common/Toast.js`
+```
+Slides down from top of screen
+Auto-dismisses after 3 seconds
+Types: success (green left border), error (red left border),
+       info (blue left border), warning (amber left border)
+Dark card background, white text
+```
+
+### `src/components/common/BottomSheet.js`
+```
+Slides up from bottom
+Backdrop darkens behind it
+Drag handle at top
+Dismiss on backdrop tap or swipe down
+```
+
+### `src/components/delivery/DeliveryStatusBar.js`
+```
+Horizontal progress bar showing delivery stages:
+Accepted → At Restaurant → Picked Up → Delivered
+
+Active step: orange + pulsing dot
+Completed steps: orange (solid)
+Future steps: dark gray
+```
+
+---
+
+## NAVIGATION FLOW
+
+```
+App Launch
+    ↓
+SplashScreen (check token + validate)
+    ↓
+Token valid? ──YES──→ isApproved? ──YES──→ Has active delivery?
+    ↓ NO                ↓ NO                ──YES──→ ActiveDeliveryScreen
+LoginScreen    PendingApprovalScreen        ──NO──→  MainNavigator
+    ↓
+RegisterScreen ←──── "Register here" link
+
+
+MainNavigator (Bottom Tabs)
+├── Home Tab
+│   └── HomeScreen
+│       └── ActiveDeliveryScreen (when delivery active)
+├── Deliveries Tab
+│   └── DeliveryDetailScreen (available deliveries list)
+│       └── ActiveDeliveryScreen (after accepting)
+├── History Tab
+│   └── HistoryScreen
+└── Profile Tab
+    └── ProfileScreen
+```
+
+---
+
+## NOTIFICATION SETUP
+
+```js
+// src/services/notifications.js
+import * as Notifications from 'expo-notifications';
+import * as Haptics from 'expo-haptics';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
+export const notifyNewDelivery = async (data) => {
+  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: '🏍️ New Delivery Available!',
+      body: `From ${data.restaurantName} — tap to accept`,
+      sound: true,
+      data,
+    },
+    trigger: null,
+  });
+};
+
+export const notifyDeliveryComplete = async () => {
+  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+};
+```
+
+---
+
+## ERROR HANDLING PATTERN
+
+Apply consistently across all API calls:
+
+```js
+try {
+  setLoading(true);
+  await store.action();
+} catch (error) {
+  const message = error.response?.data?.message || 'Something went wrong';
+
+  // Race condition — delivery already taken
+  if (message.includes('already been taken')) {
+    showToast({ type: 'warning', message: 'This delivery was just taken by another rider' });
+    store.removeAvailableDelivery(deliveryId);
+    return;
+  }
+
+  showToast({ type: 'error', message });
+} finally {
+  setLoading(false);
+}
+```
+
+---
+
+## BUSINESS RULES TO ENFORCE IN UI
+
+1. **Rider must be approved** — if `rider.isApproved === false`, show PendingApprovalScreen. Block access to deliveries.
+
+2. **One active delivery at a time** — if rider already has an active delivery (`ASSIGNED` or `PICKED_UP`), hide the "Accept" button on all other delivery cards. Show "Complete your current delivery first."
+
+3. **Must be online to see deliveries** — if `isAvailable === false`, show "Go online to see available deliveries" on the Deliveries tab.
+
+4. **Location required** — before going online or accepting a delivery, check and request location permission. If denied, show an explanation and redirect to settings.
+
+5. **Delivery status is one-directional** — only show `PICKED_UP` button when status is `ASSIGNED`. Only show `DELIVERED` when status is `PICKED_UP`. Never allow going backwards.
+
+6. **Race condition handling** — when two riders try to accept the same delivery, the API returns an error. Handle gracefully: remove the card from the list and show "Already taken by another rider."
+
+7. **Location tracking only during active delivery** — start `watchPositionAsync` when delivery is accepted, stop it when delivered or on screen unmount.
+
+8. **Earnings calculation** — rider earns 60% of the delivery fee. Show this on the delivery card and after completion.
+
+---
+
+## PRODUCTION QUALITY CHECKLIST
+
+Every screen must have:
+- [ ] Loading skeletons while data loads (not just a spinner)
+- [ ] Empty states with clear messaging and actions
+- [ ] Error states with retry buttons
+- [ ] Pull-to-refresh on all list screens
+- [ ] Safe area insets respected on all screens
+- [ ] Keyboard avoiding behavior on all forms
+- [ ] All currency as ₦X,XXX
+- [ ] Haptic feedback on: toggle online/offline, accept delivery, picked up, delivered
+- [ ] Buttons disabled + show loading while API call in flight
+- [ ] No raw UUIDs shown — always format as #XXXX
+- [ ] Dark theme consistent throughout — no white backgrounds anywhere
+- [ ] Map screen works without crashing when coordinates are null
+
+---
+
+## BUILD ORDER FOR WINDSURF
+
+Build in this exact order:
+1. Project setup + design system + theme files
+2. API client + storage utils + socket service + location service
+3. Zustand stores
+4. Auth screens (Splash → Login → Register)
+5. Pending Approval screen
+6. Main Navigator + tab bar
+7. Home Screen (availability toggle + earnings)
+8. Delivery Detail Screen (available deliveries list)
+9. Active Delivery Screen (map + bottom sheet + actions)
+10. Delivery Complete animation
+11. History Screen
+12. Profile Screen
+13. All reusable components (Button, Badge, Toast, BottomSheet)
+14. Notification setup
+15. Final QA pass — loading states, empty states, error states on every screen

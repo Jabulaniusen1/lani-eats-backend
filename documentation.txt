@@ -361,6 +361,52 @@ Update a restaurant.
 
 **Protected** | `MERCHANT` only
 
+---
+
+#### POST `/restaurants/:id/logo`
+Upload or replace the restaurant's logo.
+
+**Protected** | `MERCHANT` only
+
+**Request:** `multipart/form-data`
+| Field | Type | Description |
+|-------|------|-------------|
+| `image` | file | Image file (JPEG, PNG, etc. — max 5MB) |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "Logo uploaded",
+  "data": {
+    "restaurant": { ...updated restaurant }
+  }
+}
+```
+
+---
+
+#### POST `/restaurants/:id/cover`
+Upload or replace the restaurant's cover banner.
+
+**Protected** | `MERCHANT` only
+
+**Request:** `multipart/form-data`
+| Field | Type | Description |
+|-------|------|-------------|
+| `image` | file | Image file (JPEG, PNG, etc. — max 5MB) |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "Cover uploaded",
+  "data": {
+    "restaurant": { ...updated restaurant }
+  }
+}
+```
+
 **Request Body** (all fields optional):
 ```json
 {
@@ -437,6 +483,34 @@ Update a menu item.
 Delete a menu item.
 
 **Protected** | `MERCHANT` only
+
+---
+
+#### POST `/restaurants/:restaurantId/menu/:itemId/image`
+Upload or replace a menu item's image.
+
+**Protected** | `MERCHANT` only
+
+**Request:** `multipart/form-data`
+| Field | Type | Description |
+|-------|------|-------------|
+| `image` | file | Image file (JPEG, PNG, etc. — max 5MB) |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "Image uploaded",
+  "data": {
+    "menuItem": {
+      "id": "uuid",
+      "name": "Jollof Rice + Chicken",
+      "imageUrl": "https://res.cloudinary.com/...",
+      ...
+    }
+  }
+}
+```
 
 ---
 
@@ -981,4 +1055,7 @@ JWT_EXPIRES_IN=7d
 BCRYPT_ROUNDS=12
 PAYSTACK_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxx
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 ```

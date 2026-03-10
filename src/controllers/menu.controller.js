@@ -1,4 +1,17 @@
 const prisma = require('../config/prisma');
+const cloudinary = require('../config/cloudinary');
+
+const uploadToCloudinary = (buffer, folder) =>
+    new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+            { folder, resource_type: 'image' },
+            (error, result) => {
+                if (error) reject(error);
+                else resolve(result.secure_url);
+            }
+        );
+        stream.end(buffer);
+    });
 
 const sendResponse = (res, statusCode, success, message, data = null) => {
     const response = { success, message };
@@ -158,10 +171,41 @@ const deleteMenuItem = async (req, res) => {
 };
 
 
+// ─── UPLOAD MENU ITEM IMAGE ───────────────────────────────────
+const uploadMenuItemImage = async (req, res) => {
+    try {
+        const { restaurantId, itemId } = req.params;
+
+        if (!req.file) {
+            return sendResponse(res, 400, false, 'Image file is required');
+        }
+
+        const restaurant = await verifyRestaurantOwner(restaurantId, req.user.userId);
+        if (!restaurant) {
+            return sendResponse(res, 404, false, 'Restaurant not found or access denied');
+        }
+
+        const imageUrl = await uploadToCloudinary(req.file.buffer, 'lanieats/menu-items');
+
+        const menuItem = await prisma.menuItem.update({
+            where: { id: itemId },
+            data: { imageUrl },
+        });
+
+        return sendResponse(res, 200, true, 'Image uploaded', { menuItem });
+
+    } catch (error) {
+        console.error('uploadMenuItemImage error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
 module.exports = {
     createCategory,
     createMenuItem,
     getMenuItems,
     updateMenuItem,
     deleteMenuItem,
+    uploadMenuItemImage,
 };
