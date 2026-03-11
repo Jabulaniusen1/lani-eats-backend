@@ -8,6 +8,7 @@ const {
     updateRestaurant,
     uploadRestaurantLogo,
     uploadRestaurantCover,
+    toggleBusyMode,
 } = require('../controllers/restaurant.controller');
 const { protect, authorize } = require('../middlewares/auth.middleware');
 const upload = require('../middlewares/upload.middleware');
@@ -26,5 +27,6 @@ router.post('/', protect, authorize('MERCHANT'), createRestaurant);
 router.patch('/:id', protect, authorize('MERCHANT'), updateRestaurant);
 router.post('/:id/logo', protect, authorize('MERCHANT'), upload.single('image'), uploadRestaurantLogo);
 router.post('/:id/cover', protect, authorize('MERCHANT'), upload.single('image'), uploadRestaurantCover);
+router.patch('/:id/busy', protect, authorize('MERCHANT'), toggleBusyMode);
 
 module.exports = router;

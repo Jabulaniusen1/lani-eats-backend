@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(npx prisma migrate dev --name add_service_charge)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npx prisma:*)",
+      "Bash(node -e \"require\\(''./src/app''\\)\")",
+      "Bash(\"/Users/mac/Desktop/lanieats code:*)",
+      "Bash(node -e \"console.log\\(require\\(''./node_modules/prisma/package.json''\\).version\\)\")"
     ]
   }
 }

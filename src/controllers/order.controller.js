@@ -291,12 +291,16 @@ const getRestaurantOrders = async (req, res) => {
 const updateOrderStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const { status, estimatedPrepTime, cancelReason } = req.body;
 
         const allowedStatuses = ['CONFIRMED', 'PREPARING', 'READY_FOR_PICKUP', 'CANCELLED'];
 
         if (!allowedStatuses.includes(status)) {
             return sendResponse(res, 400, false, `Invalid status. Allowed: ${allowedStatuses.join(', ')}`);
+        }
+
+        if (status === 'CANCELLED' && !cancelReason) {
+            return sendResponse(res, 400, false, 'Please provide a reason for cancellation');
         }
 
         const merchant = await prisma.merchant.findUnique({
@@ -324,9 +328,20 @@ const updateOrderStatus = async (req, res) => {
             return sendResponse(res, 400, false, `Cannot update an order that is already ${order.status}`);
         }
 
+        const updateData = { status };
+
+        if (status === 'PREPARING' && estimatedPrepTime) {
+            updateData.estimatedPrepTime = parseInt(estimatedPrepTime);
+        }
+
+        if (status === 'CANCELLED') {
+            updateData.cancelReason = cancelReason;
+            updateData.cancelledBy = 'MERCHANT';
+        }
+
         const updated = await prisma.order.update({
             where: { id },
-            data: { status },
+            data: updateData,
         });
 
         const io = getIO();
@@ -335,6 +350,8 @@ const updateOrderStatus = async (req, res) => {
         io.to(`order_${id}`).emit('order_status_updated', {
             orderId: id,
             status: updated.status,
+            estimatedPrepTime: updated.estimatedPrepTime || null,
+            cancelReason: updated.cancelReason || null,
             updatedAt: updated.updatedAt,
         });
 
@@ -351,7 +368,8 @@ const updateOrderStatus = async (req, res) => {
         if (status === 'CANCELLED') {
             io.to(`customer_${order.userId}`).emit('order_cancelled', {
                 orderId: id,
-                message: 'Your order was cancelled by the restaurant',
+                reason: cancelReason,
+                message: `Your order was cancelled: ${cancelReason}`,
             });
         }
 

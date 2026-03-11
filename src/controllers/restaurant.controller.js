@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const cloudinary = require('../config/cloudinary');
+const { getIO } = require('../config/socket');
 
 const uploadToCloudinary = (buffer, folder) =>
     new Promise((resolve, reject) => {
@@ -265,6 +266,54 @@ const uploadRestaurantCover = async (req, res) => {
 };
 
 
+// ─── TOGGLE BUSY MODE ─────────────────────────────────────────
+const toggleBusyMode = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { isBusy, busyMessage } = req.body;
+
+        const merchant = await prisma.merchant.findUnique({
+            where: { userId: req.user.userId },
+        });
+
+        const restaurant = await prisma.restaurant.findFirst({
+            where: { id, merchantId: merchant.id },
+        });
+
+        if (!restaurant) {
+            return sendResponse(res, 404, false, 'Restaurant not found or access denied');
+        }
+
+        const updated = await prisma.restaurant.update({
+            where: { id },
+            data: {
+                isBusy: isBusy,
+                busyMessage: isBusy ? (busyMessage || 'Restaurant is very busy right now') : null,
+            },
+        });
+
+        const io = getIO();
+        io.to(`restaurant_customers_${id}`).emit('restaurant_busy_updated', {
+            restaurantId: id,
+            isBusy: updated.isBusy,
+            busyMessage: updated.busyMessage,
+        });
+
+        return sendResponse(
+            res,
+            200,
+            true,
+            `Busy mode ${isBusy ? 'enabled' : 'disabled'}`,
+            { restaurant: updated }
+        );
+
+    } catch (error) {
+        console.error('toggleBusyMode error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
 module.exports = {
     createRestaurant,
     getMyRestaurants,
@@ -273,4 +322,5 @@ module.exports = {
     updateRestaurant,
     uploadRestaurantLogo,
     uploadRestaurantCover,
+    toggleBusyMode,
 };

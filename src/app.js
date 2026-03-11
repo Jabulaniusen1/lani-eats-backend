@@ -36,6 +36,9 @@ const riderRoutes = require('./routes/rider.routes');
 const reviewRoutes = require('./routes/review.routes');
 const adminRoutes = require('./routes/admin.routes');
 const paymentRoutes = require('./routes/payment.routes');
+const bankAccountRoutes = require('./routes/bankAccount.routes');
+const payoutRoutes = require('./routes/payout.routes');
+const analyticsRoutes = require('./routes/analytics.routes');
 const errorHandler = require('./middlewares/error.middleware');
 
 app.use('/api/v1', apiLimiter);
@@ -49,6 +52,9 @@ app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/rider', riderRoutes);
 app.use('/api/v1/reviews', reviewRoutes);
 app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/v1/bank-account', bankAccountRoutes);
+app.use('/api/v1/payouts', payoutRoutes);
+app.use('/api/v1/analytics', analyticsRoutes);
 
 // Error handler middleware
 app.use(errorHandler);

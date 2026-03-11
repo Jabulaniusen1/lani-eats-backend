@@ -1,11 +1,29 @@
 const prisma = require('../config/prisma');
 const { getIO } = require('../config/socket');
+const cloudinary = require('../config/cloudinary');
 
 const sendResponse = (res, statusCode, success, message, data = null) => {
     const response = { success, message };
     if (data) response.data = data;
     return res.status(statusCode).json(response);
 };
+
+// ─── HAVERSINE DISTANCE (km) ──────────────────────────────────
+const haversineDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) *
+            Math.cos((lat2 * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+// Average rider speed in Nigerian traffic (km/h)
+const AVG_SPEED_KMH = 25;
 
 
 // ─── UPDATE RIDER PROFILE ─────────────────────────────────────
@@ -60,8 +78,13 @@ const toggleAvailability = async (req, res) => {
 
 
 // ─── GET AVAILABLE DELIVERIES ─────────────────────────────────
+// Pass ?latitude=x&longitude=y to get distance and ETA estimates
 const getAvailableDeliveries = async (req, res) => {
     try {
+        const riderLat = parseFloat(req.query.latitude);
+        const riderLon = parseFloat(req.query.longitude);
+        const hasLocation = !isNaN(riderLat) && !isNaN(riderLon);
+
         const deliveries = await prisma.delivery.findMany({
             where: {
                 status: 'UNASSIGNED',
@@ -79,14 +102,21 @@ const getAvailableDeliveries = async (req, res) => {
                                 city: true,
                                 latitude: true,
                                 longitude: true,
+                                avgPrepTime: true,
                             },
                         },
-                        address: true,
+                        address: {
+                            select: {
+                                street: true,
+                                city: true,
+                                state: true,
+                                latitude: true,
+                                longitude: true,
+                            },
+                        },
                         items: {
                             include: {
-                                menuItem: {
-                                    select: { name: true },
-                                },
+                                menuItem: { select: { name: true } },
                             },
                         },
                         user: {
@@ -98,7 +128,48 @@ const getAvailableDeliveries = async (req, res) => {
             orderBy: { createdAt: 'asc' },
         });
 
-        return sendResponse(res, 200, true, 'Available deliveries fetched', { deliveries });
+        const enriched = deliveries.map((delivery) => {
+            const restaurant = delivery.order.restaurant;
+            const dropoff = delivery.order.address;
+            let distanceInfo = null;
+
+            if (
+                hasLocation &&
+                restaurant.latitude &&
+                restaurant.longitude &&
+                dropoff.latitude &&
+                dropoff.longitude
+            ) {
+                const distToRestaurant = haversineDistance(
+                    riderLat, riderLon,
+                    restaurant.latitude, restaurant.longitude
+                );
+                const distToCustomer = haversineDistance(
+                    restaurant.latitude, restaurant.longitude,
+                    dropoff.latitude, dropoff.longitude
+                );
+                const totalDistance = distToRestaurant + distToCustomer;
+
+                // ETA = time to reach restaurant + prep time remaining + time to customer
+                const timeToRestaurantMin = Math.ceil((distToRestaurant / AVG_SPEED_KMH) * 60);
+                const timeToCustomerMin = Math.ceil((distToCustomer / AVG_SPEED_KMH) * 60);
+                const estimatedTotalMin = timeToRestaurantMin + timeToCustomerMin;
+
+                distanceInfo = {
+                    distanceToRestaurantKm: parseFloat(distToRestaurant.toFixed(1)),
+                    distanceToCustomerKm: parseFloat(distToCustomer.toFixed(1)),
+                    totalDistanceKm: parseFloat(totalDistance.toFixed(1)),
+                    etaToRestaurantMin: timeToRestaurantMin,
+                    etaToCustomerMin: timeToCustomerMin,
+                    estimatedTotalMin,
+                    label: `${totalDistance.toFixed(1)} km · ~${estimatedTotalMin} min`,
+                };
+            }
+
+            return { ...delivery, distanceInfo };
+        });
+
+        return sendResponse(res, 200, true, 'Available deliveries fetched', { deliveries: enriched });
 
     } catch (error) {
         console.error('getAvailableDeliveries error:', error);
@@ -374,6 +445,209 @@ const updateLocation = async (req, res) => {
 };
 
 
+// ─── DECLINE DELIVERY ─────────────────────────────────────────
+const declineDelivery = async (req, res) => {
+    try {
+        const { deliveryId } = req.params;
+
+        const delivery = await prisma.delivery.findUnique({
+            where: { id: deliveryId },
+        });
+
+        if (!delivery) {
+            return sendResponse(res, 404, false, 'Delivery not found');
+        }
+
+        if (delivery.status !== 'UNASSIGNED') {
+            return sendResponse(res, 400, false, 'This delivery is no longer available');
+        }
+
+        // Increment rider's declined count for acceptance rate tracking
+        await prisma.rider.update({
+            where: { userId: req.user.userId },
+            data: { totalDeclined: { increment: 1 } },
+        });
+
+        return sendResponse(res, 200, true, 'Delivery declined');
+
+    } catch (error) {
+        console.error('declineDelivery error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
+// ─── GET RIDER PERFORMANCE STATS ─────────────────────────────
+const getRiderStats = async (req, res) => {
+    try {
+        const rider = await prisma.rider.findUnique({
+            where: { userId: req.user.userId },
+            include: {
+                reviews: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 10,
+                    include: {
+                        user: { select: { firstName: true, lastName: true } },
+                        order: { select: { id: true } },
+                    },
+                },
+            },
+        });
+
+        if (!rider) return sendResponse(res, 404, false, 'Rider profile not found');
+
+        const [delivered, failed, accepted] = await Promise.all([
+            prisma.delivery.count({ where: { riderId: rider.id, status: 'DELIVERED' } }),
+            prisma.delivery.count({ where: { riderId: rider.id, status: 'FAILED' } }),
+            prisma.delivery.count({
+                where: { riderId: rider.id, status: { in: ['ASSIGNED', 'PICKED_UP', 'DELIVERED', 'FAILED'] } },
+            }),
+        ]);
+
+        const totalCompleted = delivered + failed;
+        const completionRate = totalCompleted > 0 ? Math.round((delivered / totalCompleted) * 100) : 100;
+
+        const totalOffered = accepted + rider.totalDeclined;
+        const acceptanceRate = totalOffered > 0 ? Math.round((accepted / totalOffered) * 100) : 100;
+
+        // Performance tier
+        let tier = 'Bronze';
+        if (completionRate >= 95 && acceptanceRate >= 80 && rider.rating >= 4.5) tier = 'Gold';
+        else if (completionRate >= 85 && acceptanceRate >= 70 && rider.rating >= 4.0) tier = 'Silver';
+
+        return sendResponse(res, 200, true, 'Performance stats fetched', {
+            rating: rider.rating,
+            totalReviews: rider.totalReviews,
+            recentReviews: rider.reviews,
+            deliveries: {
+                total: accepted,
+                delivered,
+                failed,
+                completionRate,
+            },
+            acceptanceRate,
+            tier,
+        });
+
+    } catch (error) {
+        console.error('getRiderStats error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
+// ─── REPORT DELIVERY ISSUE ────────────────────────────────────
+const reportDeliveryIssue = async (req, res) => {
+    try {
+        const { deliveryId } = req.params;
+        const { type, description } = req.body;
+
+        const validTypes = [
+            'CANT_FIND_CUSTOMER',
+            'WRONG_ADDRESS',
+            'CUSTOMER_REFUSED',
+            'ITEM_DAMAGED',
+            'RESTAURANT_NOT_READY',
+            'OTHER',
+        ];
+
+        if (!type || !validTypes.includes(type)) {
+            return sendResponse(res, 400, false, `Invalid issue type. Valid: ${validTypes.join(', ')}`);
+        }
+
+        const rider = await prisma.rider.findUnique({
+            where: { userId: req.user.userId },
+        });
+
+        if (!rider) return sendResponse(res, 404, false, 'Rider profile not found');
+
+        const delivery = await prisma.delivery.findFirst({
+            where: { id: deliveryId, riderId: rider.id },
+        });
+
+        if (!delivery) {
+            return sendResponse(res, 404, false, 'Delivery not found or access denied');
+        }
+
+        const issue = await prisma.deliveryIssue.create({
+            data: {
+                deliveryId,
+                riderId: rider.id,
+                type,
+                description: description || null,
+            },
+        });
+
+        // Notify admin via socket
+        const io = getIO();
+        io.to('admin').emit('delivery_issue_reported', {
+            deliveryId,
+            riderId: rider.id,
+            type,
+            description,
+            createdAt: issue.createdAt,
+        });
+
+        return sendResponse(res, 201, true, 'Issue reported successfully', { issue });
+
+    } catch (error) {
+        console.error('reportDeliveryIssue error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
+// ─── UPLOAD DELIVERY PHOTO PROOF ─────────────────────────────
+const uploadDeliveryProof = async (req, res) => {
+    try {
+        const { deliveryId } = req.params;
+
+        if (!req.file) {
+            return sendResponse(res, 400, false, 'Photo is required');
+        }
+
+        const rider = await prisma.rider.findUnique({
+            where: { userId: req.user.userId },
+        });
+
+        if (!rider) return sendResponse(res, 404, false, 'Rider profile not found');
+
+        const delivery = await prisma.delivery.findFirst({
+            where: { id: deliveryId, riderId: rider.id },
+        });
+
+        if (!delivery) {
+            return sendResponse(res, 404, false, 'Delivery not found or access denied');
+        }
+
+        // Upload to Cloudinary
+        const uploadResult = await new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+                { folder: 'delivery-proofs', resource_type: 'image' },
+                (error, result) => {
+                    if (error) reject(error);
+                    else resolve(result);
+                }
+            );
+            stream.end(req.file.buffer);
+        });
+
+        const updated = await prisma.delivery.update({
+            where: { id: deliveryId },
+            data: { photoProofUrl: uploadResult.secure_url },
+        });
+
+        return sendResponse(res, 200, true, 'Photo proof uploaded', {
+            photoProofUrl: updated.photoProofUrl,
+        });
+
+    } catch (error) {
+        console.error('uploadDeliveryProof error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
 module.exports = {
     updateRiderProfile,
     toggleAvailability,
@@ -382,4 +656,8 @@ module.exports = {
     updateDeliveryStatus,
     getMyDeliveries,
     updateLocation,
+    declineDelivery,
+    getRiderStats,
+    reportDeliveryIssue,
+    uploadDeliveryProof,
 };
