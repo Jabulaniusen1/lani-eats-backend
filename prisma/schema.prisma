@@ -161,6 +161,7 @@ model Order {
   total             Float
   note              String?
   estimatedPrepTime Int?
+  deliveryCode      String?       // 4-digit code for delivery confirmation
   cancelReason      String?
   cancelledBy       String?
   createdAt         DateTime      @default(now())
@@ -191,6 +192,12 @@ model Rider {
   userId           String         @unique
   vehicleType      String         // "bike", "bicycle", "car"
   vehiclePlate     String?
+  nin              String?        // National Identification Number
+  photographUrl    String?        // Passport photograph
+  dateOfBirth      DateTime?
+  gender           String?        // "male", "female"
+  homeAddress      String?
+  isOnboarded      Boolean        @default(false)
   isAvailable      Boolean        @default(false)
   isApproved       Boolean        @default(false)
   currentLatitude  Float?

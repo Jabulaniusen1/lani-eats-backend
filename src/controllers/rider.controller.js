@@ -26,6 +26,80 @@ const haversineDistance = (lat1, lon1, lat2, lon2) => {
 const AVG_SPEED_KMH = 25;
 
 
+// ─── COMPLETE RIDER ONBOARDING ────────────────────────────────
+// Called after signup to submit KYC details (NIN, DOB, etc.)
+const completeOnboarding = async (req, res) => {
+    try {
+        const { vehicleType, vehiclePlate, nin, dateOfBirth, gender, homeAddress } = req.body;
+
+        if (!vehicleType || !nin || !dateOfBirth || !gender || !homeAddress) {
+            return sendResponse(res, 400, false, 'vehicleType, nin, dateOfBirth, gender, and homeAddress are required');
+        }
+
+        const validVehicles = ['bike', 'bicycle', 'car'];
+        if (!validVehicles.includes(vehicleType)) {
+            return sendResponse(res, 400, false, `Invalid vehicleType. Allowed: ${validVehicles.join(', ')}`);
+        }
+
+        const validGenders = ['male', 'female'];
+        if (!validGenders.includes(gender)) {
+            return sendResponse(res, 400, false, `Invalid gender. Allowed: ${validGenders.join(', ')}`);
+        }
+
+        const rider = await prisma.rider.update({
+            where: { userId: req.user.userId },
+            data: {
+                vehicleType,
+                vehiclePlate: vehiclePlate || null,
+                nin,
+                dateOfBirth: new Date(dateOfBirth),
+                gender,
+                homeAddress,
+                isOnboarded: true,
+            },
+        });
+
+        return sendResponse(res, 200, true, 'Onboarding details saved', { rider });
+
+    } catch (error) {
+        console.error('completeOnboarding error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
+// ─── UPLOAD RIDER PHOTOGRAPH ──────────────────────────────────
+const uploadRiderPhoto = async (req, res) => {
+    try {
+        if (!req.file) {
+            return sendResponse(res, 400, false, 'Photo is required');
+        }
+
+        const uploadResult = await new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+                { folder: 'rider-photos', resource_type: 'image' },
+                (error, result) => {
+                    if (error) reject(error);
+                    else resolve(result);
+                }
+            );
+            stream.end(req.file.buffer);
+        });
+
+        const rider = await prisma.rider.update({
+            where: { userId: req.user.userId },
+            data: { photographUrl: uploadResult.secure_url },
+        });
+
+        return sendResponse(res, 200, true, 'Photo uploaded', { photographUrl: rider.photographUrl });
+
+    } catch (error) {
+        console.error('uploadRiderPhoto error:', error);
+        return sendResponse(res, 500, false, 'Something went wrong');
+    }
+};
+
+
 // ─── UPDATE RIDER PROFILE ─────────────────────────────────────
 const updateRiderProfile = async (req, res) => {
     try {
@@ -264,7 +338,7 @@ const acceptDelivery = async (req, res) => {
 const updateDeliveryStatus = async (req, res) => {
     try {
         const { deliveryId } = req.params;
-        const { status, latitude, longitude } = req.body;
+        const { status, latitude, longitude, confirmationCode } = req.body;
 
         const allowedStatuses = ['PICKED_UP', 'DELIVERED', 'FAILED'];
 
@@ -284,16 +358,45 @@ const updateDeliveryStatus = async (req, res) => {
             return sendResponse(res, 404, false, 'Delivery not found or access denied');
         }
 
+        // ── Verify confirmation code before marking delivered ──────
+        if (status === 'DELIVERED') {
+            if (!confirmationCode) {
+                return sendResponse(res, 400, false, 'Confirmation code is required to complete delivery');
+            }
+
+            const order = await prisma.order.findUnique({
+                where: { id: delivery.orderId },
+                select: { deliveryCode: true },
+            });
+
+            if (!order.deliveryCode) {
+                return sendResponse(res, 400, false, 'Delivery code not generated yet. Mark as PICKED_UP first');
+            }
+
+            if (String(confirmationCode) !== String(order.deliveryCode)) {
+                return sendResponse(res, 400, false, 'Incorrect confirmation code. Cannot hand over food');
+            }
+        }
+
+        let deliveryCodeForRider = null;
+
         const updated = await prisma.$transaction(async (tx) => {
             const updateData = { status };
 
             if (status === 'PICKED_UP') {
                 updateData.pickedUpAt = new Date();
 
-                // Order is now out for delivery
+                // Generate 4-digit delivery code
+                const code = String(Math.floor(1000 + Math.random() * 9000));
+                deliveryCodeForRider = code;
+
+                // Save code to order, move order to OUT_FOR_DELIVERY
                 await tx.order.update({
                     where: { id: delivery.orderId },
-                    data: { status: 'OUT_FOR_DELIVERY' },
+                    data: {
+                        status: 'OUT_FOR_DELIVERY',
+                        deliveryCode: code,
+                    },
                 });
             }
 
@@ -333,6 +436,15 @@ const updateDeliveryStatus = async (req, res) => {
             updatedAt: new Date(),
         });
 
+        // When food is picked up, send code to customer and rider sees it in the response
+        if (status === 'PICKED_UP' && deliveryCodeForRider) {
+            io.to(`order_${delivery.orderId}`).emit('delivery_code_issued', {
+                orderId: delivery.orderId,
+                deliveryCode: deliveryCodeForRider,
+                message: `Your delivery code is ${deliveryCodeForRider}. Share this with your rider to receive your food.`,
+            });
+        }
+
         // Emit rider's current location to customer if provided
         if (latitude && longitude) {
             io.to(`order_${delivery.orderId}`).emit('rider_location_updated', {
@@ -355,7 +467,13 @@ const updateDeliveryStatus = async (req, res) => {
             });
         }
 
-        return sendResponse(res, 200, true, 'Delivery status updated', { delivery: updated });
+        const responseData = { delivery: updated };
+        // Return the code to the rider so they know what to ask for
+        if (deliveryCodeForRider) {
+            responseData.deliveryCode = deliveryCodeForRider;
+        }
+
+        return sendResponse(res, 200, true, 'Delivery status updated', responseData);
 
     } catch (error) {
         console.error('updateDeliveryStatus error:', error);
@@ -649,6 +767,8 @@ const uploadDeliveryProof = async (req, res) => {
 
 
 module.exports = {
+    completeOnboarding,
+    uploadRiderPhoto,
     updateRiderProfile,
     toggleAvailability,
     getAvailableDeliveries,

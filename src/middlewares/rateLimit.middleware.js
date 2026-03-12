@@ -12,14 +12,10 @@ const apiLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-// Strict limit for auth routes — prevent brute force attacks
+// Auth rate limit disabled for development
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 10,
-    message: {
-        success: false,
-        message: 'Too many login attempts. Please try again after 15 minutes',
-    },
+    max: 1000,
     standardHeaders: true,
     legacyHeaders: false,
 });

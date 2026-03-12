@@ -727,8 +727,80 @@ CANCELLED         → Cancelled by customer or merchant
 
 All rider routes require `RIDER` role.
 
+#### POST `/rider/onboarding`
+Complete rider KYC onboarding after signup. Must be called before the rider can be approved.
+
+**Request Body:**
+```json
+{
+  "vehicleType": "bike",
+  "vehiclePlate": "LND 123 XY",
+  "nin": "12345678901",
+  "dateOfBirth": "1998-05-14",
+  "gender": "male",
+  "homeAddress": "15 Aka Road, Uyo, Akwa Ibom"
+}
+```
+
+**Fields:**
+| Field | Required | Description |
+|-------|----------|-------------|
+| `vehicleType` | Yes | `bike`, `bicycle`, or `car` |
+| `vehiclePlate` | No | Vehicle plate number |
+| `nin` | Yes | National Identification Number |
+| `dateOfBirth` | Yes | ISO date string (YYYY-MM-DD) |
+| `gender` | Yes | `male` or `female` |
+| `homeAddress` | Yes | Rider's home address |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "Onboarding details saved",
+  "data": {
+    "rider": {
+      "id": "uuid",
+      "vehicleType": "bike",
+      "nin": "12345678901",
+      "dateOfBirth": "1998-05-14T00:00:00.000Z",
+      "gender": "male",
+      "homeAddress": "15 Aka Road, Uyo, Akwa Ibom",
+      "isOnboarded": true,
+      "isApproved": false
+    }
+  }
+}
+```
+
+> After submitting onboarding, the rider's profile is reviewed by an admin before `isApproved` is set to `true`.
+
+---
+
+#### POST `/rider/onboarding/photo`
+Upload the rider's passport photograph. Can be called separately after onboarding form submission.
+
+**Request:** `multipart/form-data`
+| Field | Type | Description |
+|-------|------|-------------|
+| `photo` | file | Passport photo (JPEG, PNG — max 5MB) |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "Photo uploaded",
+  "data": {
+    "photographUrl": "https://res.cloudinary.com/..."
+  }
+}
+```
+
+> Photo is stored in the `rider-photos` Cloudinary folder and saved on the `Rider` record.
+
+---
+
 #### PATCH `/rider/profile`
-Update rider profile.
+Update rider profile (vehicle info only).
 
 **Request Body:**
 ```json
@@ -830,7 +902,7 @@ Decline a delivery (tracked for acceptance rate calculation).
 #### PATCH `/rider/deliveries/:deliveryId/status`
 Update delivery status.
 
-**Request Body:**
+**Request Body — marking PICKED_UP:**
 ```json
 {
   "status": "PICKED_UP",
@@ -839,10 +911,40 @@ Update delivery status.
 }
 ```
 
+**Request Body — marking DELIVERED:**
+```json
+{
+  "status": "DELIVERED",
+  "confirmationCode": "4823",
+  "latitude": 6.5244,
+  "longitude": 3.3792
+}
+```
+
 **Allowed statuses:** `PICKED_UP` → `DELIVERED` | `FAILED`
+
+**Delivery confirmation code flow:**
+1. When rider marks status as `PICKED_UP`, a 4-digit code is generated automatically
+2. The code is sent to the **customer** via the `delivery_code_issued` socket event
+3. The code is also returned to the **rider** in the API response (`data.deliveryCode`)
+4. When marking `DELIVERED`, the rider must include `confirmationCode` in the request body
+5. If the code doesn't match → `400 "Incorrect confirmation code. Cannot hand over food"`
+
+**Response when PICKED_UP `200`:**
+```json
+{
+  "success": true,
+  "message": "Delivery status updated",
+  "data": {
+    "delivery": { ...delivery object },
+    "deliveryCode": "4823"
+  }
+}
+```
 
 **Socket events emitted:**
 - `delivery_status_updated` → to customer
+- `delivery_code_issued` → to customer order room (when PICKED_UP, includes the 4-digit code)
 - `rider_location_updated` → to customer (if lat/lng provided)
 - `order_delivered` → to customer's personal room (when DELIVERED)
 
@@ -1753,7 +1855,7 @@ Approve or reject a merchant.
 ---
 
 #### GET `/admin/riders/pending`
-Get all riders pending approval.
+Get all riders pending approval. A rider appears here after completing onboarding via `POST /rider/onboarding`.
 
 ---
 
@@ -1825,6 +1927,7 @@ socket.emit('join_restaurant_customers', restaurantId);
 | `rider_assigned` | `order_{id}` | `{ orderId, message }` | Rider accepted the delivery |
 | `delivery_available` | broadcast | `{ orderId, status, restaurantName }` | Order ready for rider pickup |
 | `delivery_status_updated` | `order_{id}` | `{ orderId, deliveryStatus, updatedAt }` | Rider updated delivery status |
+| `delivery_code_issued` | `order_{id}` | `{ orderId, deliveryCode, message }` | 4-digit code issued when rider picks up food |
 | `rider_location_updated` | `order_{id}` | `{ orderId, latitude, longitude }` | Rider location changed |
 | `order_delivered` | `customer_{id}` | `{ orderId, message }` | Order successfully delivered |
 | `restaurant_busy_updated` | `restaurant_customers_{id}` | `{ restaurantId, isBusy, busyMessage }` | Restaurant busy mode toggled |
@@ -1865,7 +1968,7 @@ id, restaurantId, categoryId, name, description, price, imageUrl, isAvailable
 ```
 id, userId, restaurantId, addressId, status, paymentStatus, paymentRef,
 subtotal, deliveryFee, serviceCharge, total, note,
-estimatedPrepTime, cancelReason, cancelledBy,
+estimatedPrepTime, deliveryCode, cancelReason, cancelledBy,
 createdAt, updatedAt
 ```
 
@@ -1876,7 +1979,9 @@ id, orderId, riderId, status, pickedUpAt, deliveredAt, photoProofUrl, createdAt,
 
 ### Rider
 ```
-id, userId, vehicleType, vehiclePlate, isAvailable, isApproved,
+id, userId, vehicleType, vehiclePlate,
+nin, photographUrl, dateOfBirth, gender, homeAddress, isOnboarded,
+isAvailable, isApproved,
 currentLatitude, currentLongitude, rating, totalReviews, totalDeclined
 ```
 

@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const {
+    completeOnboarding,
+    uploadRiderPhoto,
     updateRiderProfile,
     toggleAvailability,
     getAvailableDeliveries,
@@ -26,6 +28,10 @@ const { protect, authorize } = require('../middlewares/auth.middleware');
 const upload = require('../middlewares/upload.middleware');
 
 router.use(protect, authorize('RIDER')); // all rider routes require RIDER role
+
+// ── Onboarding ────────────────────────────────────────────────
+router.post('/onboarding', completeOnboarding);
+router.post('/onboarding/photo', upload.single('photo'), uploadRiderPhoto);
 
 // ── Profile & availability ────────────────────────────────────
 router.patch('/profile', updateRiderProfile);
